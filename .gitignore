@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Flask / runtime artifacts
+*.log
+*.pid
+*.tmp
+
+# Uploaded user data (keep the directory, ignore contents)
+data/uploads/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv/
+.venv/
+env/
