@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botnet Detection Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/flatly/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <div class="page-header">
+        <div class="header-left">
+            <h1>Botnet Detection Dashboard</h1>
+            <p>Network flow analysis, anomaly detection &amp; risk ranking</p>
+        </div>
+        <div class="header-right">
+            <div class="header-badge">
+                <span class="status-dot"></span>
+                <span>{{ n_nodes }} nodes &middot; {{ n_edges }} edges &middot; {{ summary.high_risk_count }} high risk</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Navigation ─────────────────────────────────────────── -->
+    <nav class="nav-bar">
+        <button class="nav-btn active" data-tab="overview">&#9672; Overview</button>
+        <button class="nav-btn" data-tab="graph">&#9673; Network Graph</button>
+        <button class="nav-btn" data-tab="metrics">&#9660; Phase 1 Metrics</button>
+        <button class="nav-btn" data-tab="anomalies">&#9888; Anomaly Thresholds</button>
+        <button class="nav-btn" data-tab="advanced">&#9733; Phase 2 Metrics</button>
+        <button class="nav-btn" data-tab="communities">&#10066; Communities</button>
+        <button class="nav-btn" data-tab="ml">&#9776; ML Detection</button>
+        <button class="nav-btn" data-tab="risky">&#9888; Flagged Nodes</button>
+    </nav>
+
+    <!-- ── Content ────────────────────────────────────────────── -->
+    <div class="main-content">
+
+        <!-- Overview -->
+        <div class="tab-panel active" id="panel-overview">
+            <div class="stat-row">
+                <div class="stat-item">
+                    <div class="stat-label">Network Size</div>
+                    <div class="stat-value">{{ n_nodes }}</div>
+                    <div class="stat-sub">{{ n_edges }} edges &middot; {{ n_nodes - summary.normal_count }} flagged</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Flows Ingested</div>
+                    <div class="stat-value">{{ "%.0f"|format(ingestion.valid_flows) }}</div>
+                    <div class="stat-sub">{{ "%.0f"|format(ingestion.dropped_flows) }} dropped &middot; {{ "%.0f"|format(ingestion.total_flows) }} total</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Total Flagged</div>
+                    <div class="stat-value">{{ summary.total_nodes - summary.normal_count }}</div>
+                    <div class="stat-sub">exceeded at least 1 threshold</div>
+                </div>
+                <div class="stat-item risk-highlight">
+                    <div class="stat-label">High Risk</div>
+                    <div class="stat-value risk-high">{{ summary.high_risk_count }}</div>
+                    <div class="stat-sub">{{ summary.suspicious_count }} suspicious &middot; {{ summary.normal_count }} clean</div>
+                </div>
+            </div>
+            <div class="info-card">
+                <h3 class="info-title">Detection Configuration</h3>
+                <div class="info-grid">
+                    <div class="info-item"><span class="info-key">Z-score threshold</span><span class="info-val">k = 2.0 standard deviations</span></div>
+                    <div class="info-item"><span class="info-key">High risk definition</span><span class="info-val">2 or more metrics exceeded</span></div>
+                    <div class="info-item"><span class="info-key">Suspicious definition</span><span class="info-val">Exactly 1 metric exceeded</span></div>
+                    <div class="info-item"><span class="info-key">Phase 2 scoring</span><span class="info-val">Composite of betweenness, eigenvector, PageRank</span></div>
+                    <div class="info-item"><span class="info-key">Community detection</span><span class="info-val">Greedy modularity optimization</span></div>
+                    <div class="info-item"><span class="info-key">ML model</span><span class="info-val">Random Forest (100 trees, balanced classes)</span></div>
+                </div>
+            </div>
+
+            <!-- Upload Your Own Data -->
+            <div class="info-card" style="margin-top:1.5rem;">
+                <h3 class="info-title">Upload Your Own Data</h3>
+                <p class="muted" style="margin-bottom:1rem;">Drop a CSV file with columns: <code>src_ip</code>, <code>dst_ip</code>, <code>proto</code>, <code>bytes_sent</code>, <code>bytes_recv</code>, <code>duration_s</code>, <code>label</code>. The dashboard will recompute all metrics on your data.</p>
+
+                {% if error %}
+                <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:1rem;margin-bottom:1.5rem;color:#dc2626;">
+                    <strong>Error:</strong> {{ error }}
+                </div>
+                {% endif %}
+
+                {% if success_msg %}
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:1rem;margin-bottom:1.5rem;color:#16a34a;">
+                    <strong>Success!</strong> Loaded {{ success_msg }} &middot; Showing analysis of your data.
+                </div>
+                {% endif %}
+
+                <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+                    <div class="info-grid" style="grid-template-columns:1fr; margin-bottom:1rem;">
+                        <label style="font-size:0.8125rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;">CSV File</label>
+                        <input type="file" name="csvfile" accept=".csv" required
+                               style="display:block;width:100%;padding:0.625rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;background:var(--bg-primary);color:var(--text-primary);">
+                    </div>
+                    <button type="submit"
+                            style="appearance:none;border:none;background:var(--accent);color:#fff;border-radius:6px;padding:0.625rem 1.5rem;font-size:0.875rem;font-weight:600;cursor:pointer;transition:opacity 0.15s;"
+                            onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                        Upload &amp; Analyse
+                    </button>
+                </form>
+
+                {% if source_label %}
+                <form method="GET" action="{{ url_for('index') }}" style="margin-top:1rem;">
+                    <button type="submit"
+                            style="appearance:none;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);border-radius:6px;padding:0.5rem 1.25rem;font-size:0.8125rem;cursor:pointer;">
+                        ← Reset to Sample Data
+                    </button>
+                </form>
+                {% endif %}
+
+                <details style="margin-top:1.5rem;">
+                    <summary style="cursor:pointer;font-size:0.8125rem;color:var(--text-secondary);">Expected CSV format</summary>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:1rem;margin-top:0.5rem;font-size:0.75rem;overflow-x:auto;line-height:1.6;">src_ip,dst_ip,proto,bytes_sent,bytes_recv,duration_s,label
+10.0.1.1,10.0.1.2,TCP,28362,3685,5.36,botnet
+10.0.1.1,10.0.1.3,UDP,8453,7578,4.09,normal
+...</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- Network Graph -->
+        <div class="tab-panel" id="panel-graph">
+            <h2 class="section-title">Network Topology</h2>
+            <p class="muted">Spring-layout visualization &middot; Node color: red = high risk, orange = suspicious, green = normal</p>
+            <div class="graph-image-wrap">
+                {% if graph_image %}
+                <img src="data:image/png;base64,{{ graph_image }}" alt="Network graph">
+                {% else %}
+                <p>No graph image available</p>
+                {% endif %}
+            </div>
+            <div class="legend">
+                <span class="legend-item"><span class="legend-dot" style="background:#dc2626"></span> High Risk ({{ summary.high_risk_count }})</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#f97316"></span> Suspicious ({{ summary.suspicious_count }})</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#16a34a"></span> Normal ({{ summary.normal_count }})</span>
+            </div>
+        </div>
+
+        <!-- Phase 1 Metrics -->
+        <div class="tab-panel" id="panel-metrics">
+            <h2 class="section-title">Phase 1 Centrality Rankings</h2>
+            <p class="muted">Top {{ TOP_N_RISKY_NODES }} flagged nodes by each centrality metric</p>
+            <div class="chart-container">{{ deg|safe }}</div>
+            <div class="row g-3">
+                <div class="col-md-6"><div class="chart-container">{{ close|safe }}</div></div>
+                <div class="col-md-6"><div class="chart-container">{{ cluster|safe }}</div></div>
+            </div>
+        </div>
+
+        <!-- Anomaly Thresholds -->
+        <div class="tab-panel" id="panel-anomalies">
+            <h2 class="section-title">Anomaly Thresholds</h2>
+            <p class="muted">A metric is flagged when its value exceeds mean + k&sdot;std across all nodes</p>
+            <table class="data-table">
+                <thead><tr><th>Metric</th><th>Mean</th><th>Std Dev</th><th>Threshold</th><th>Nodes Above</th></tr></thead>
+                <tbody>
+                {% set flag_counts = {
+                    'degree_centrality': summary.total_nodes - summary.normal_count,
+                    'closeness_centrality': 0,
+                    'clustering_coefficient': 0
+                } %}
+                {% for m, t in thresholds.items() %}
+                <tr>
+                    <td><strong>{{ m }}</strong></td>
+                    <td>{{ "%.4f"|format(t.mean) }}</td>
+                    <td>{{ "%.4f"|format(t.std) }}</td>
+                    <td><span class="threshold-val">{{ "%.4f"|format(t.threshold) }}</span></td>
+                    <td><span class="risk-badge risk-susp">&gt;{{ "%.0f"|format((t.threshold - t.mean) / t.std) }}&#960;</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Phase 2 Advanced Metrics -->
+        <div class="tab-panel" id="panel-advanced">
+            <h2 class="section-title">Phase 2 Advanced Metrics</h2>
+            <p class="muted">{{ phase2_summary.high_risk_count }} high risk, {{ phase2_summary.suspicious_count }} suspicious &middot; Composite scoring from betweenness, eigenvector &amp; PageRank</p>
+            <div class="chart-container">{{ comp|safe }}</div>
+            <div class="row g-3">
+                <div class="col-md-6"><div class="chart-container">{{ btwn|safe }}</div></div>
+                <div class="col-md-6"><div class="chart-container">{{ evec|safe }}</div></div>
+            </div>
+            <div class="row g-3">
+                <div class="col-md-6"><div class="chart-container">{{ pr|safe }}</div></div>
+            </div>
+        </div>
+
+        <!-- Communities -->
+        <div class="tab-panel" id="panel-communities">
+            <h2 class="section-title">Community Analysis</h2>
+            <p class="muted">{{ communities|length }} communities detected &middot; {{ anomalous_count }} flagged as anomalous (density ratio &gt; 1.5)</p>
+            <div class="community-summary">
+                {% for c in communities %}
+                <div class="comm-card{% if c.is_anomalous %} comm-anomalous{% endif %}">
+                    <div class="comm-id">#{{ c.community_id }}</div>
+                    <div class="comm-meta">
+                        <span class="comm-stat"><strong>{{ c.size }}</strong> nodes</span>
+                        <span class="comm-stat">int density <strong>{{ "%.3f"|format(c.internal_density) }}</strong></span>
+                        <span class="comm-stat">ext density <strong>{{ "%.3f"|format(c.external_density) }}</strong></span>
+                        <span class="comm-stat ratio">ratio <strong>{{ "%.2f"|format(c.density_ratio) }}</strong></span>
+                    </div>
+                    <div class="comm-risk">
+                        {% if c.is_anomalous %}<span class="risk-badge risk-high">ANOMALOUS</span>{% else %}<span class="risk-badge risk-normal">Normal</span>{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- ML Detection -->
+        <div class="tab-panel" id="panel-ml">
+            <h2 class="section-title">ML Classification</h2>
+            <p class="muted">Random Forest classifier (100 trees) trained on centrality features &middot; Showing top {{ ml_top|length }} predictions</p>
+            <div class="chart-container">{{ ml|safe }}</div>
+            <table class="data-table">
+                <thead><tr><th>IP Address</th><th>Probability</th><th>Prediction</th><th>Combined Risk</th></tr></thead>
+                <tbody>
+                {% for r in ml_top %}
+                <tr>
+                    <td><code>{{ r.ip }}</code></td>
+                    <td>{{ "%.4f"|format(r.ml_probability) }}</td>
+                    <td>{% if r.ml_prediction == 1 %}<span class="risk-badge risk-high">Botnet</span>{% else %}<span class="risk-badge risk-normal">Normal</span>{% endif %}</td>
+                    <td>{{ r.combined_risk }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Flagged Nodes -->
+        <div class="tab-panel" id="panel-risky">
+            <h2 class="section-title">Flagged Nodes</h2>
+            <p class="muted">{{ risky|length }} nodes exceeded at least one centrality threshold &middot; Sorted by number of flags</p>
+            <table class="data-table">
+                <thead><tr><th>IP</th><th>Degree C.</th><th>Closeness C.</th><th>Cluster Coeff</th><th>Flags</th><th>Risk</th><th>Explanation</th></tr></thead>
+                <tbody>
+                {% for r in risky %}
+                <tr>
+                    <td><code>{{ r.ip }}</code></td>
+                    <td>{{ "%.4f"|format(r.degree_centrality) }}</td>
+                    <td>{{ "%.4f"|format(r.closeness_centrality) }}</td>
+                    <td>{{ "%.4f"|format(r.clustering_coefficient) }}</td>
+                    <td><strong>{{ r.flag_count }}</strong></td>
+                    <td><span class="risk-badge risk-{{ 'high' if r.risk_level == 'High Risk' else 'susp' if r.risk_level == 'Suspicious' else 'normal' }}">{{ r.risk_level }}</span></td>
+                    <td class="explanation">{{ (r.anomaly_explanation or '')[:100] }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div><!-- /.main-content -->
+
+    <footer class="page-footer">
+        Botnet Detection Dashboard &middot; Graph centrality analysis &middot; Data generated synthetically
+    </footer>
+
+    <script>
+        (function() {
+            var btns = document.querySelectorAll('.nav-btn');
+            var panels = document.querySelectorAll('.tab-panel');
+            btns.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var target = this.getAttribute('data-tab');
+                    panels.forEach(function(p) { p.classList.remove('active'); });
+                    var panel = document.getElementById('panel-' + target);
+                    if (panel) panel.classList.add('active');
+                    btns.forEach(function(b) { b.classList.remove('active'); });
+                    this.classList.add('active');
+                });
+            });
+        })();
+    </script>
+</body>
+</html>
